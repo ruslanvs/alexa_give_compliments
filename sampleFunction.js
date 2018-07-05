@@ -1,587 +1,411 @@
-/* eslint-disable  func-names */
-/* eslint-disable  no-console */
-/* eslint-disable  no-restricted-syntax */
-
-// IMPORTANT: Please note that this template uses Dispay Directives,
-// Display Interface for your skill should be enabled through the Amazon developer console
-// See this screenshot - https://alexa.design/enabledisplay
-
-const Alexa = require('ask-sdk-core');
-
-/* INTENT HANDLERS */
-const LaunchRequestHandler = {
-  canHandle(handlerInput) {
-    return handlerInput.requestEnvelope.request.type === `LaunchRequest`;
-  },
-  handle(handlerInput) {
-    return handlerInput.responseBuilder
-      .speak(welcomeMessage)
-      .reprompt(helpMessage)
-      .getResponse();
-  },
-};
-
-const QuizHandler = {
-  canHandle(handlerInput) {
-    const request = handlerInput.requestEnvelope.request;
-    console.log("Inside QuizHandler");
-    console.log(JSON.stringify(request));
-    return request.type === "IntentRequest" &&
-           (request.intent.name === "QuizIntent" || request.intent.name === "AMAZON.StartOverIntent");
-  },
-  handle(handlerInput) {
-    console.log("Inside QuizHandler - handle");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const response = handlerInput.responseBuilder;
-    attributes.state = states.QUIZ;
-    attributes.counter = 0;
-    attributes.quizScore = 0;
-
-    var question = askQuestion(handlerInput);
-    var speakOutput = startQuizMessage + question;
-    var repromptOutput = question;
-
-    const item = attributes.quizItem;
-    const property = attributes.quizProperty;
-
-    if (supportsDisplay(handlerInput)) {
-      const title = `Question #${attributes.counter}`;
-      const primaryText = new Alexa.RichTextContentHelper().withPrimaryText(getQuestionWithoutOrdinal(property, item)).getTextContent();
-      const backgroundImage = new Alexa.ImageHelper().addImageInstance(getBackgroundImage(attributes.quizItem.Abbreviation)).getImage();
-      const itemList = [];
-      getAndShuffleMultipleChoiceAnswers(attributes.selectedItemIndex, item, property).forEach((x, i) => {
-        itemList.push(
-          {
-            "token" : x,
-            "textContent" : new Alexa.PlainTextContentHelper().withPrimaryText(x).getTextContent(),
-          }
-        );
-      });
-      response.addRenderTemplateDirective({
-        type : 'ListTemplate1',
-        token : 'Question',
-        backButton : 'hidden',
-        backgroundImage,
-        title,
-        listItems : itemList,
-      });
-    }
-
-    return response.speak(speakOutput)
-                   .reprompt(repromptOutput)
-                   .getResponse();
-  },
-};
-
-const DefinitionHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside DefinitionHandler");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const request = handlerInput.requestEnvelope.request;
-
-    return attributes.state !== states.QUIZ &&
-           request.type === 'IntentRequest' &&
-           request.intent.name === 'AnswerIntent';
-  },
-  handle(handlerInput) {
-    console.log("Inside DefinitionHandler - handle");
-    //GRABBING ALL SLOT VALUES AND RETURNING THE MATCHING DATA OBJECT.
-    const item = getItem(handlerInput.requestEnvelope.request.intent.slots);
-    const response = handlerInput.responseBuilder;
-
-    //IF THE DATA WAS FOUND
-    if (item && item[Object.getOwnPropertyNames(data[0])[0]] !== undefined) {
-      if (useCardsFlag) {
-        response.withStandardCard(
-          getCardTitle(item),
-          getTextDescription(item),
-          getSmallImage(item),
-          getLargeImage(item))
-      }
-
-      if(supportsDisplay(handlerInput)) {
-        const image = new Alexa.ImageHelper().addImageInstance(getLargeImage(item)).getImage();
-        const title = getCardTitle(item);
-        const primaryText = new Alexa.RichTextContentHelper().withPrimaryText(getTextDescription(item, "<br/>")).getTextContent();
-        response.addRenderTemplateDirective({
-          type: 'BodyTemplate2',
-          backButton: 'visible',
-          image,
-          title,
-          textContent: primaryText,
-        });
-      }
-      return response.speak(getSpeechDescription(item))
-              .reprompt(repromptSpeech)
-              .getResponse();
-    }
-    //IF THE DATA WAS NOT FOUND
-    else
-    {
-      return response.speak(getBadAnswer(item))
-              .reprompt(getBadAnswer(item))
-              .getResponse();
-    }
-  }
-};
-
-const QuizAnswerHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside QuizAnswerHandler");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const request = handlerInput.requestEnvelope.request;
-
-    return attributes.state === states.QUIZ &&
-           request.type === 'IntentRequest' &&
-           request.intent.name === 'AnswerIntent';
-  },
-  handle(handlerInput) {
-    console.log("Inside QuizAnswerHandler - handle");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const response = handlerInput.responseBuilder;
-
-    var speakOutput = ``;
-    var repromptOutput = ``;
-    const item = attributes.quizItem;
-    const property = attributes.quizProperty;
-    const isCorrect = compareSlots(handlerInput.requestEnvelope.request.intent.slots, item[property]);
-
-    if (isCorrect) {
-      speakOutput = getSpeechCon(true);
-      attributes.quizScore += 1;
-      handlerInput.attributesManager.setSessionAttributes(attributes);
-    } else {
-      speakOutput = getSpeechCon(false);
-    }
-
-    speakOutput += getAnswer(property, item);
-    var question = ``;
-    //IF YOUR QUESTION COUNT IS LESS THAN 10, WE NEED TO ASK ANOTHER QUESTION.
-    if (attributes.counter < 10) {
-      speakOutput += getCurrentScore(attributes.quizScore, attributes.counter);
-      question = askQuestion(handlerInput);
-      speakOutput += question;
-      repromptOutput = question;
-
-      if (supportsDisplay(handlerInput)) {
-        const title = `Question #${attributes.counter}`;
-        const primaryText = new Alexa.RichTextContentHelper().withPrimaryText(getQuestionWithoutOrdinal(attributes.quizProperty, attributes.quizItem)).getTextContent();
-        const backgroundImage = new Alexa.ImageHelper().addImageInstance(getBackgroundImage(attributes.quizItem.Abbreviation)).getImage();
-        const itemList = [];
-        getAndShuffleMultipleChoiceAnswers(attributes.selectedItemIndex, attributes.quizItem, attributes.quizProperty).forEach((x, i) => {
-          itemList.push(
-            {
-              "token" : x,
-              "textContent" : new Alexa.PlainTextContentHelper().withPrimaryText(x).getTextContent(),
-            }
-          );
-        });
-        response.addRenderTemplateDirective({
-          type : 'ListTemplate1',
-          token : 'Question',
-          backButton : 'hidden',
-          backgroundImage,
-          title,
-          listItems : itemList,
-        });
-      }
-      return response.speak(speakOutput)
-      .reprompt(repromptOutput)
-      .getResponse();
-    }
-    else {
-      speakOutput += getFinalScore(attributes.quizScore, attributes.counter) + exitSkillMessage;
-      if(supportsDisplay(handlerInput)) {
-        const title = 'Thank you for playing';
-        const primaryText = new Alexa.RichTextContentHelper().withPrimaryText(getFinalScore(attributes.quizScore, attributes.counter)).getTextContent();
-        response.addRenderTemplateDirective({
-          type : 'BodyTemplate1',
-          backButton: 'hidden',
-          title,
-          textContent: primaryText,
-        });
-      }
-      return response.speak(speakOutput).getResponse();
-    }
-  },
-};
-
-const RepeatHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside RepeatHandler");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const request = handlerInput.requestEnvelope.request;
-
-    return attributes.state === states.QUIZ &&
-           request.type === 'IntentRequest' &&
-           request.intent.name === 'AMAZON.RepeatHandler';
-  },
-  handle(handlerInput) {
-    console.log("Inside RepeatHandler - handle");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const question = getQuestion(attributes.counter, attributes.quizproperty, attributes.quizitem);
-
-    return handlerInput.responseBuilder
-      .speak(question)
-      .reprompt(question)
-      .getResponse();
-  },
-};
-
-const HelpHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside HelpHandler");
-    const request = handlerInput.requestEnvelope.request;
-    return request.type === 'IntentRequest' &&
-           request.intent.name === 'AMAZON.HelpHandler';
-  },
-  handle(handlerInput) {
-    console.log("Inside HelpHandler - handle");
-    return handlerInput.responseBuilder
-      .speak(helpMessage)
-      .reprompt(helpMessage)
-      .getResponse();
-  },
-};
-
-const ExitHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside ExitHandler");
-    const attributes = handlerInput.attributesManager.getSessionAttributes();
-    const request = handlerInput.requestEnvelope.request;
-
-    return request.type === `IntentRequest` && (
-              request.intent.name === 'AMAZON.StopIntent' ||
-              request.intent.name === 'AMAZON.PauseIntent' ||
-              request.intent.name === 'AMAZON.CancelIntent'
-           );
-  },
-  handle(handlerInput) {
-    return handlerInput.responseBuilder
-      .speak(exitSkillMessage)
-      .getResponse();
-  },
-};
-
-const SessionEndedRequestHandler = {
-  canHandle(handlerInput) {
-    console.log("Inside SessionEndedRequestHandler");
-    return handlerInput.requestEnvelope.request.type === 'SessionEndedRequest';
-  },
-  handle(handlerInput) {
-    console.log(`Session ended with reason: ${JSON.stringify(handlerInput.requestEnvelope)}`);
-    return handlerInput.responseBuilder.getResponse();
-  },
-};
-
-const ErrorHandler = {
-  canHandle() {
-    console.log("Inside ErrorHandler");
-    return true;
-  },
-  handle(handlerInput, error) {
-    console.log("Inside ErrorHandler - handle");
-    console.log(`Error handled: ${JSON.stringify(error)}`);
-    console.log(`Handler Input: ${JSON.stringify(handlerInput)}`);
-
-    return handlerInput.responseBuilder
-      .speak(helpMessage)
-      .reprompt(helpMessage)
-      .getResponse();
-  },
-};
-
-/* CONSTANTS */
-const skillBuilder = Alexa.SkillBuilders.custom();
-const imagePath = "https://m.media-amazon.com/images/G/01/mobile-apps/dex/alexa/alexa-skills-kit/tutorials/quiz-game/state_flag/{0}x{1}/{2}._TTH_.png";
-const backgroundImagePath = "https://m.media-amazon.com/images/G/01/mobile-apps/dex/alexa/alexa-skills-kit/tutorials/quiz-game/state_flag/{0}x{1}/{2}._TTH_.png"
-const speechConsCorrect = ['Booya', 'All righty', 'Bam', 'Bazinga', 'Bingo', 'Boom', 'Bravo', 'Cha Ching', 'Cheers', 'Dynomite', 'Hip hip hooray', 'Hurrah', 'Hurray', 'Huzzah', 'Oh dear.  Just kidding.  Hurray', 'Kaboom', 'Kaching', 'Oh snap', 'Phew','Righto', 'Way to go', 'Well done', 'Whee', 'Woo hoo', 'Yay', 'Wowza', 'Yowsa'];
-const speechConsWrong = ['Argh', 'Aw man', 'Blarg', 'Blast', 'Boo', 'Bummer', 'Darn', "D'oh", 'Dun dun dun', 'Eek', 'Honk', 'Le sigh', 'Mamma mia', 'Oh boy', 'Oh dear', 'Oof', 'Ouch', 'Ruh roh', 'Shucks', 'Uh oh', 'Wah wah', 'Whoops a daisy', 'Yikes'];
-const data = [
-  {StateName: 'Alabama', Abbreviation: 'AL', Capital: 'Montgomery', StatehoodYear: 1819, StatehoodOrder: 22},
-  {StateName: 'Alaska', Abbreviation: 'AK', Capital: 'Juneau', StatehoodYear: 1959, StatehoodOrder: 49},
-  {StateName: 'Arizona', Abbreviation: 'AZ', Capital: 'Phoenix', StatehoodYear: 1912, StatehoodOrder: 48},
-  {StateName: 'Arkansas', Abbreviation: 'AR', Capital: 'Little Rock', StatehoodYear: 1836, StatehoodOrder: 25},
-  {StateName: 'California', Abbreviation: 'CA', Capital: 'Sacramento', StatehoodYear: 1850, StatehoodOrder: 31},
-  {StateName: 'Colorado', Abbreviation: 'CO', Capital: 'Denver', StatehoodYear: 1876, StatehoodOrder: 38},
-  {StateName: 'Connecticut', Abbreviation: 'CT', Capital: 'Hartford', StatehoodYear: 1788, StatehoodOrder: 5},
-  {StateName: 'Delaware', Abbreviation: 'DE', Capital: 'Dover', StatehoodYear: 1787, StatehoodOrder: 1},
-  {StateName: 'Florida', Abbreviation: 'FL', Capital: 'Tallahassee', StatehoodYear: 1845, StatehoodOrder: 27},
-  {StateName: 'Georgia', Abbreviation: 'GA', Capital: 'Atlanta', StatehoodYear: 1788, StatehoodOrder: 4},
-  {StateName: 'Hawaii', Abbreviation: 'HI', Capital: 'Honolulu', StatehoodYear: 1959, StatehoodOrder: 50},
-  {StateName: 'Idaho', Abbreviation: 'ID', Capital: 'Boise', StatehoodYear: 1890, StatehoodOrder: 43},
-  {StateName: 'Illinois', Abbreviation: 'IL', Capital: 'Springfield', StatehoodYear: 1818, StatehoodOrder: 21},
-  {StateName: 'Indiana', Abbreviation: 'IN', Capital: 'Indianapolis', StatehoodYear: 1816, StatehoodOrder: 19},
-  {StateName: 'Iowa', Abbreviation: 'IA', Capital: 'Des Moines', StatehoodYear: 1846, StatehoodOrder: 29},
-  {StateName: 'Kansas', Abbreviation: 'KS', Capital: 'Topeka', StatehoodYear: 1861, StatehoodOrder: 34},
-  {StateName: 'Kentucky', Abbreviation: 'KY', Capital: 'Frankfort', StatehoodYear: 1792, StatehoodOrder: 15},
-  {StateName: 'Louisiana', Abbreviation: 'LA', Capital: 'Baton Rouge', StatehoodYear: 1812, StatehoodOrder: 18},
-  {StateName: 'Maine', Abbreviation: 'ME', Capital: 'Augusta', StatehoodYear: 1820, StatehoodOrder: 23},
-  {StateName: 'Maryland', Abbreviation: 'MD', Capital: 'Annapolis', StatehoodYear: 1788, StatehoodOrder: 7},
-  {StateName: 'Massachusetts', Abbreviation: 'MA', Capital: 'Boston', StatehoodYear: 1788, StatehoodOrder: 6},
-  {StateName: 'Michigan', Abbreviation: 'MI', Capital: 'Lansing', StatehoodYear: 1837, StatehoodOrder: 26},
-  {StateName: 'Minnesota', Abbreviation: 'MN', Capital: 'St. Paul', StatehoodYear: 1858, StatehoodOrder: 32},
-  {StateName: 'Mississippi', Abbreviation: 'MS', Capital: 'Jackson', StatehoodYear: 1817, StatehoodOrder: 20},
-  {StateName: 'Missouri', Abbreviation: 'MO', Capital: 'Jefferson City', StatehoodYear: 1821, StatehoodOrder: 24},
-  {StateName: 'Montana', Abbreviation: 'MT', Capital: 'Helena', StatehoodYear: 1889, StatehoodOrder: 41},
-  {StateName: 'Nebraska', Abbreviation: 'NE', Capital: 'Lincoln', StatehoodYear: 1867, StatehoodOrder: 37},
-  {StateName: 'Nevada', Abbreviation: 'NV', Capital: 'Carson City', StatehoodYear: 1864, StatehoodOrder: 36},
-  {StateName: 'New Hampshire', Abbreviation: 'NH', Capital: 'Concord', StatehoodYear: 1788, StatehoodOrder: 9},
-  {StateName: 'New Jersey', Abbreviation: 'NJ', Capital: 'Trenton', StatehoodYear: 1787, StatehoodOrder: 3},
-  {StateName: 'New Mexico', Abbreviation: 'NM', Capital: 'Santa Fe', StatehoodYear: 1912, StatehoodOrder: 47},
-  {StateName: 'New York', Abbreviation: 'NY', Capital: 'Albany', StatehoodYear: 1788, StatehoodOrder: 11},
-  {StateName: 'North Carolina', Abbreviation: 'NC', Capital: 'Raleigh', StatehoodYear: 1789, StatehoodOrder: 12},
-  {StateName: 'North Dakota', Abbreviation: 'ND', Capital: 'Bismarck', StatehoodYear: 1889, StatehoodOrder: 39},
-  {StateName: 'Ohio', Abbreviation: 'OH', Capital: 'Columbus', StatehoodYear: 1803, StatehoodOrder: 17},
-  {StateName: 'Oklahoma', Abbreviation: 'OK', Capital: 'Oklahoma City', StatehoodYear: 1907, StatehoodOrder: 46},
-  {StateName: 'Oregon', Abbreviation: 'OR', Capital: 'Salem', StatehoodYear: 1859, StatehoodOrder: 33},
-  {StateName: 'Pennsylvania', Abbreviation: 'PA', Capital: 'Harrisburg', StatehoodYear: 1787, StatehoodOrder: 2},
-  {StateName: 'Rhode Island', Abbreviation: 'RI', Capital: 'Providence', StatehoodYear: 1790, StatehoodOrder: 13},
-  {StateName: 'South Carolina', Abbreviation: 'SC', Capital: 'Columbia', StatehoodYear: 1788, StatehoodOrder: 8},
-  {StateName: 'South Dakota', Abbreviation: 'SD', Capital: 'Pierre', StatehoodYear: 1889, StatehoodOrder: 40},
-  {StateName: 'Tennessee', Abbreviation: 'TN', Capital: 'Nashville', StatehoodYear: 1796, StatehoodOrder: 16},
-  {StateName: 'Texas', Abbreviation: 'TX', Capital: 'Austin', StatehoodYear: 1845, StatehoodOrder: 28},
-  {StateName: 'Utah', Abbreviation: 'UT', Capital: 'Salt Lake City', StatehoodYear: 1896, StatehoodOrder: 45},
-  {StateName: 'Vermont', Abbreviation: 'VT', Capital: 'Montpelier', StatehoodYear: 1791, StatehoodOrder: 14},
-  {StateName: 'Virginia', Abbreviation: 'VA', Capital: 'Richmond', StatehoodYear: 1788, StatehoodOrder: 10},
-  {StateName: 'Washington', Abbreviation: 'WA', Capital: 'Olympia', StatehoodYear: 1889, StatehoodOrder: 42},
-  {StateName: 'West Virginia', Abbreviation: 'WV', Capital: 'Charleston', StatehoodYear: 1863, StatehoodOrder: 35},
-  {StateName: 'Wisconsin', Abbreviation: 'WI', Capital: 'Madison', StatehoodYear: 1848, StatehoodOrder: 30},
-  {StateName: 'Wyoming', Abbreviation: 'WY', Capital: 'Cheyenne', StatehoodYear: 1890, StatehoodOrder: 44},
-];
+const Alexa = require('alexa-sdk');
+const ical = require('ical');
+const utils = require('util');
 
 const states = {
-  START: `_START`,
-  QUIZ: `_QUIZ`,
+    SEARCHMODE: '_SEARCHMODE',
+    DESCRIPTION: '_DESKMODE',
+};
+// local variable holding reference to the Alexa SDK object
+let alexa;
+
+//OPTIONAL: replace with "amzn1.ask.skill.[your-unique-value-here]";
+let APP_ID = undefined;
+
+// URL to get the .ics from, in this instance we are getting from Stanford however this can be changed
+const URL = "http://events.stanford.edu/eventlist.ics";
+
+// Skills name
+const skillName = "Events calendar:";
+
+// Message when the skill is first called
+const welcomeMessage = "You can ask for the events today. Search for events by date. or say help. What would you like? ";
+
+// Message for help intent
+const HelpMessage = "Here are some things you can say: Get me events for today. Tell me whats happening on the 18th of July. What events are happening next week? Get me stuff happening tomorrow. ";
+
+const descriptionStateHelpMessage = "Here are some things you can say: Tell me about event one";
+
+// Used when there is no data within a time period
+const NoDataMessage = "Sorry there aren't any events scheduled. Would you like to search again?";
+
+// Used to tell user skill is closing
+const shutdownMessage = "Ok see you again soon.";
+
+// Message used when only 1 event is found allowing for difference in punctuation
+const oneEventMessage = "There is 1 event ";
+
+// Message used when more than 1 event is found allowing for difference in punctuation
+const multipleEventMessage = "There are %d events ";
+
+// text used after the number of events has been said
+const scheduledEventMessage = "scheduled for this time frame. I've sent the details to your Alexa app: ";
+
+const firstThreeMessage = "Here are the first %d. ";
+
+// the values within the {} are swapped out for variables
+const eventSummary = "The %s event is, %s at %s on %s ";
+
+// Only used for the card on the companion app
+const cardContentSummary = "%s at %s on %s ";
+
+// More info text
+const haveEventsreprompt = "Give me an event number to hear more information.";
+
+// Error if a date is out of range
+const dateOutOfRange = "Date is out of range please choose another date";
+
+// Error if a event number is out of range
+const eventOutOfRange = "Event number is out of range please choose another event";
+
+// Used when an event is asked for
+const descriptionMessage = "Here's the description ";
+
+// Used when an event is asked for
+const killSkillMessage = "Ok, great, see you next time.";
+
+const eventNumberMoreInfoText = "For more information on a specific event number, try saying: what's event one?";
+
+// used for title on companion app
+const cardTitle = "Events";
+
+// output for Alexa
+let output = "";
+
+// stores events that are found to be in our date range
+let relevantEvents = new Array();
+
+// Adding session handlers
+const newSessionHandlers = {
+    'LaunchRequest': function () {
+        this.handler.state = states.SEARCHMODE;
+        this.response.speak(skillName + " " + welcomeMessage).listen(welcomeMessage);
+        this.emit(':responseReady');
+    },
+    "searchIntent": function()
+    {
+        this.handler.state = states.SEARCHMODE;
+        this.emitWithState("searchIntent");
+    },
+    'Unhandled': function () {
+        this.response.speak(HelpMessage).listen(HelpMessage);
+        this.emit(':responseReady');
+    },
 };
 
-const welcomeMessage = `Welcome to the United States Quiz Game!  You can ask me about any of the fifty states and their capitals, or you can ask me to start a quiz.  What would you like to do?`;
-const startQuizMessage = `OK.  I will ask you 10 questions about the United States. `;
-const exitSkillMessage = `Thank you for playing the United States Quiz Game!  Let's play again soon!`;
-const repromptSpeech = `Which other state or capital would you like to know about?`;
-const helpMessage = `I know lots of things about the United States.  You can ask me about a state or a capital, and I'll tell you what I know.  You can also test your knowledge by asking me to start a quiz.  What would you like to do?`;
-const useCardsFlag = true;
+// Create a new handler with a SEARCH state
+const startSearchHandlers = Alexa.CreateStateHandler(states.SEARCHMODE, {
+    'AMAZON.YesIntent': function () {
+        output = welcomeMessage;
+        alexa.response.speak(output).listen(welcomeMessage);
+        this.emit(':responseReady');
+    },
 
-/* HELPER FUNCTIONS */
+    'AMAZON.NoIntent': function () {
+        this.response.speak(shutdownMessage);
+        this.emit(':responseReady');
+    },
 
-// returns true if the skill is running on a device with a display (show|spot)
-function supportsDisplay(handlerInput) {
-  var hasDisplay =
-    handlerInput.requestEnvelope.context &&
-    handlerInput.requestEnvelope.context.System &&
-    handlerInput.requestEnvelope.context.System.device &&
-    handlerInput.requestEnvelope.context.System.device.supportedInterfaces &&
-    handlerInput.requestEnvelope.context.System.device.supportedInterfaces.Display
-  return hasDisplay;
-}
+    'AMAZON.RepeatIntent': function () {
+        this.response.speak(output).listen(HelpMessage);
+    },
 
-function getBadAnswer(item) {
-  return `I'm sorry. ${item} is not something I know very much about in this skill. ${helpMessage}`;
-}
+    'searchIntent': function () {
+        // Declare variables
+        let eventList = new Array();
+        const slotValue = this.event.request.intent.slots.date.value;
+        if (slotValue != undefined)
+        {
+            let parent = this;
 
-function getCurrentScore(score, counter) {
-  return `Your current score is ${score} out of ${counter}. `;
-}
+            // Using the iCal library I pass the URL of where we want to get the data from.
+            ical.fromURL(URL, {}, function (error, data) {
+                // Loop through all iCal data found
+                for (let k in data) {
+                    if (data.hasOwnProperty(k)) {
+                        let ev = data[k];
+                        // Pick out the data relevant to us and create an object to hold it.
+                        let eventData = {
+                            summary: removeTags(ev.summary),
+                            location: removeTags(ev.location),
+                            description: removeTags(ev.description),
+                            start: ev.start
+                        };
+                        // add the newly created object to an array for use later.
+                        eventList.push(eventData);
+                    }
+                }
+                // Check we have data
+                if (eventList.length > 0) {
+                    // Read slot data and parse out a usable date
+                    const eventDate = getDateFromSlot(slotValue);
+                    // Check we have both a start and end date
+                    if (eventDate.startDate && eventDate.endDate) {
+                        // initiate a new array, and this time fill it with events that fit between the two dates
+                        relevantEvents = getEventsBeweenDates(eventDate.startDate, eventDate.endDate, eventList);
 
-function getFinalScore(score, counter) {
-  return `Your final score is ${score} out of ${counter}. `;
-}
+                        if (relevantEvents.length > 0) {
+                            // change state to description
+                            parent.handler.state = states.DESCRIPTION;
 
-function getCardTitle(item) {
-  return item.StateName;
-}
+                            // Create output for both Alexa and the content card
+                            let cardContent = "";
+                            output = oneEventMessage;
+                            if (relevantEvents.length > 1) {
+                                output = utils.format(multipleEventMessage, relevantEvents.length);
+                            }
 
-function getSmallImage(item) {
-  return `https://m.media-amazon.com/images/G/01/mobile-apps/dex/alexa/alexa-skills-kit/tutorials/quiz-game/state_flag/720x400/${item.Abbreviation}._TTH_.png`;
-}
+                            output += scheduledEventMessage;
 
-function getLargeImage(item) {
-  return `https://m.media-amazon.com/images/G/01/mobile-apps/dex/alexa/alexa-skills-kit/tutorials/quiz-game/state_flag/1200x800/${item.Abbreviation}._TTH_.png`;
-}
+                            if (relevantEvents.length > 1) {
+                                output += utils.format(firstThreeMessage, relevantEvents.length > 3 ? 3 : relevantEvents.length);
+                            }
 
-function getImage(height, width, label) {
-  return imagePath.replace("{0}", height)
-    .replace("{1}", width)
-    .replace("{2}", label);
-}
+                            if (relevantEvents[0] != null) {
+                                let date = new Date(relevantEvents[0].start);
+                                output += utils.format(eventSummary, "First", removeTags(relevantEvents[0].summary), relevantEvents[0].location, date.toDateString() + ".");
+                            }
+                            if (relevantEvents[1]) {
+                                let date = new Date(relevantEvents[1].start);
+                                output += utils.format(eventSummary, "Second", removeTags(relevantEvents[1].summary), relevantEvents[1].location, date.toDateString() + ".");
+                            }
+                            if (relevantEvents[2]) {
+                                let date = new Date(relevantEvents[2].start);
+                                output += utils.format(eventSummary, "Third", removeTags(relevantEvents[2].summary), relevantEvents[2].location, date.toDateString() + ".");
+                            }
 
-function getBackgroundImage(label, height = 1024, width = 600) {
-  return backgroundImagePath.replace("{0}", height)
-    .replace("{1}", width)
-    .replace("{2}", label);
-}
+                            for (let i = 0; i < relevantEvents.length; i++) {
+                                let date = new Date(relevantEvents[i].start);
+                                cardContent += utils.format(cardContentSummary, removeTags(relevantEvents[i].summary), removeTags(relevantEvents[i].location), date.toDateString()+ "\n\n");
+                            }
 
-function getSpeechDescription(item) {
-  return `${item.StateName} is the ${item.StatehoodOrder}th state, admitted to the Union in ${item.StatehoodYear}.  The capital of ${item.StateName} is ${item.Capital}, and the abbreviation for ${item.StateName} is <break strength='strong'/><say-as interpret-as='spell-out'>${item.Abbreviation}</say-as>.  I've added ${item.StateName} to your Alexa app.  Which other state or capital would you like to know about?`;
-}
-
-function formatCasing(key) {
-  return key.split(/(?=[A-Z])/).join(' ');
-}
-
-function getQuestion(counter, property, item) {
-  return `Here is your ${counter}th question.  What is the ${formatCasing(property)} of ${item.StateName}?`;
-}
-
-// getQuestionWithoutOrdinal returns the question without the ordinal and is
-// used for the echo show.
-function getQuestionWithoutOrdinal(property, item) {
-  return "What is the " + formatCasing(property).toLowerCase() + " of "  + item.StateName + "?";
-}
-
-function getAnswer(property, item) {
-  switch (property) {
-    case 'Abbreviation':
-      return `The ${formatCasing(property)} of ${item.StateName} is <say-as interpret-as='spell-out'>${item[property]}</say-as>. `;
-    default:
-      return `The ${formatCasing(property)} of ${item.StateName} is ${item[property]}. `;
-  }
-}
-
-function getRandom(min, max) {
-  return Math.floor((Math.random() * ((max - min) + 1)) + min);
-}
-
-function askQuestion(handlerInput) {
-  console.log("I am in askQuestion()");
-  //GENERATING THE RANDOM QUESTION FROM DATA
-  const random = getRandom(0, data.length - 1);
-  const item = data[random];
-  const propertyArray = Object.getOwnPropertyNames(item);
-  const property = propertyArray[getRandom(1, propertyArray.length - 1)];
-
-  //GET SESSION ATTRIBUTES
-  const attributes = handlerInput.attributesManager.getSessionAttributes();
-
-  //SET QUESTION DATA TO ATTRIBUTES
-  attributes.selectedItemIndex = random;
-  attributes.quizItem = item;
-  attributes.quizProperty = property;
-  attributes.counter += 1;
-
-  //SAVE ATTRIBUTES
-  handlerInput.attributesManager.setSessionAttributes(attributes);
-
-  const question = getQuestion(attributes.counter, property, item);
-  return question;
-}
-
-function compareSlots(slots, value) {
-  for (const slot in slots) {
-    if (Object.prototype.hasOwnProperty.call(slots, slot) && slots[slot].value !== undefined) {
-      if (slots[slot].value.toString().toLowerCase() === value.toString().toLowerCase()) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-function getItem(slots) {
-  const propertyArray = Object.getOwnPropertyNames(data[0]);
-  let slotValue;
-
-  for (const slot in slots) {
-    if (Object.prototype.hasOwnProperty.call(slots, slot) && slots[slot].value !== undefined) {
-      slotValue = slots[slot].value;
-      for (const property in propertyArray) {
-        if (Object.prototype.hasOwnProperty.call(propertyArray, property)) {
-          const item = data.filter(x => x[propertyArray[property]]
-            .toString().toLowerCase() === slots[slot].value.toString().toLowerCase());
-          if (item.length > 0) {
-            return item[0];
-          }
+                            output += eventNumberMoreInfoText;
+                            alexa.response.cardRenderer(cardTitle, cardContent);
+                            alexa.response.speak(output).listen(haveEventsreprompt);
+                        } else {
+                            output = NoDataMessage;
+                            alexa.emit(output).listen(output);
+                        }
+                    }
+                    else {
+                        output = NoDataMessage;
+                        alexa.emit(output).listen(output);
+                    }
+                } else {
+                    output = NoDataMessage;
+                    alexa.emit(output).listen(output);
+                }
+            });
         }
-      }
+        else{
+            this.response.speak("I'm sorry.  What day did you want me to look for events?").listen("I'm sorry.  What day did you want me to look for events?");
+        }
+
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.HelpIntent': function () {
+        output = HelpMessage;
+        this.response.speak(output).listen(output);
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.StopIntent': function () {
+        this.response.speak(killSkillMessage);
+    },
+
+    'AMAZON.CancelIntent': function () {
+        this.response.speak(killSkillMessage);
+    },
+
+    'SessionEndedRequest': function () {
+        this.emit('AMAZON.StopIntent');
+    },
+
+    'Unhandled': function () {
+        this.response.speak(HelpMessage).listen(HelpMessage);
+        this.emit(':responseReady');
     }
-  }
-  return slotValue;
-}
+});
 
-function getSpeechCon(type) {
-  if (type) return `<say-as interpret-as='interjection'>${speechConsCorrect[getRandom(0, speechConsCorrect.length - 1)]}! </say-as><break strength='strong'/>`;
-  return `<say-as interpret-as='interjection'>${speechConsWrong[getRandom(0, speechConsWrong.length - 1)]} </say-as><break strength='strong'/>`;
-}
+// Create a new handler object for description state
+const descriptionHandlers = Alexa.CreateStateHandler(states.DESCRIPTION, {
+    'eventIntent': function () {
 
+        const reprompt = " Would you like to hear another event?";
+        let slotValue = this.event.request.intent.slots.number.value;
 
-function getTextDescription(item) {
-  let text = '';
+        // parse slot value
+        const index = parseInt(slotValue, 10) - 1;
 
-  for (const key in item) {
-    if (Object.prototype.hasOwnProperty.call(item, key)) {
-      text += `${formatCasing(key)}: ${item[key]}\n`;
+        if (relevantEvents[index]) {
+
+            // use the slot value as an index to retrieve description from our relevant array
+            output = descriptionMessage + removeTags(relevantEvents[index].description);
+
+            output += reprompt;
+
+            this.response.cardRenderer(relevantEvents[index].summary, output);
+            this.response.speak(output).listen(reprompt);
+        } else {
+            this.response.speak(eventOutOfRange).listen(welcomeMessage);
+        }
+
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.HelpIntent': function () {
+        this.response.speak(descriptionStateHelpMessage).listen(descriptionStateHelpMessage);
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.StopIntent': function () {
+        this.response.speak(killSkillMessage);
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.CancelIntent': function () {
+        this.response.speak(killSkillMessage);
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.NoIntent': function () {
+        this.response.speak(shutdownMessage);
+        this.emit(':responseReady');
+    },
+
+    'AMAZON.YesIntent': function () {
+        output = welcomeMessage;
+        alexa.response.speak(eventNumberMoreInfoText).listen(eventNumberMoreInfoText);
+        this.emit(':responseReady');
+    },
+
+    'SessionEndedRequest': function () {
+        this.emit('AMAZON.StopIntent');
+    },
+
+    'Unhandled': function () {
+        this.response.speak(HelpMessage).listen(HelpMessage);
+        this.emit(':responseReady');
     }
-  }
-  return text;
-}
+});
 
-function getAndShuffleMultipleChoiceAnswers(currentIndex, item, property) {
-  return shuffle(getMultipleChoiceAnswers(currentIndex, item, property));
-}
+// register handlers
+exports.handler = function (event, context, callback) {
+    alexa = Alexa.handler(event, context);
+    alexa.appId = APP_ID;
+    alexa.registerHandlers(newSessionHandlers, startSearchHandlers, descriptionHandlers);
+    alexa.execute();
+};
+//======== HELPER FUNCTIONS ==============
 
-// This function randomly chooses 3 answers 2 incorrect and 1 correct answer to
-// display on the screen using the ListTemplate. It ensures that the list is unique.
-function getMultipleChoiceAnswers(currentIndex, item, property) {
-
-  // insert the correct answer first
-  let answerList = [item[property]];
-
-  // There's a possibility that we might get duplicate answers
-  // 8 states were founded in 1788
-  // 4 states were founded in 1889
-  // 3 states were founded in 1787
-  // to prevent duplicates we need avoid index collisions and take a sample of
-  // 8 + 4 + 1 = 13 answers (it's not 8+4+3 because later we take the unique
-  // we only need the minimum.)
-  let count = 0
-  let upperBound = 12
-
-  let seen = new Array();
-  seen[currentIndex] = 1;
-
-  while (count < upperBound) {
-    let random = getRandom(0, data.length - 1);
-
-    // only add if we haven't seen this index
-    if ( seen[random] === undefined ) {
-      answerList.push(data[random][property]);
-      count++;
+// Remove HTML tags from string
+function removeTags(str) {
+    if (str) {
+        return str.replace(/<(?:.|\n)*?>/gm, '');
     }
-  }
-
-  // remove duplicates from the list.
-  answerList = answerList.filter((v, i, a) => a.indexOf(v) === i)
-  // take the first three items from the list.
-  answerList = answerList.slice(0, 3);
-  return answerList;
 }
 
-// This function takes the contents of an array and randomly shuffles it.
-function shuffle(array) {
-  let currentIndex = array.length, temporaryValue, randomIndex;
+// Given an AMAZON.DATE slot value parse out to usable JavaScript Date object
+// Utterances that map to the weekend for a specific week (such as �this weekend�) convert to a date indicating the week number and weekend: 2015-W49-WE.
+// Utterances that map to a month, but not a specific day (such as �next month�, or �December�) convert to a date with just the year and month: 2015-12.
+// Utterances that map to a year (such as �next year�) convert to a date containing just the year: 2016.
+// Utterances that map to a decade convert to a date indicating the decade: 201X.
+// Utterances that map to a season (such as �next winter�) convert to a date with the year and a season indicator: winter: WI, spring: SP, summer: SU, fall: FA)
+function getDateFromSlot(rawDate) {
+    // try to parse data
+    let date = new Date(Date.parse(rawDate));
+    // create an empty object to use later
+    let eventDate = {
 
-  while ( 0 !== currentIndex ) {
-    randomIndex = Math.floor(Math.random() * currentIndex);
-    currentIndex--;
-    temporaryValue = array[currentIndex];
-    array[currentIndex] = array[randomIndex];
-    array[randomIndex] = temporaryValue;
-  }
-  return array;
+    };
+
+    // if could not parse data must be one of the other formats
+    if (isNaN(date)) {
+        // to find out what type of date this is, we can split it and count how many parts we have see comments above.
+        const res = rawDate.split("-");
+        // if we have 2 bits that include a 'W' week number
+        if (res.length === 2 && res[1].indexOf('W') > -1) {
+            let dates = getWeekData(res);
+            eventDate["startDate"] = new Date(dates.startDate);
+            eventDate["endDate"] = new Date(dates.endDate);
+            // if we have 3 bits, we could either have a valid date (which would have parsed already) or a weekend
+        } else if (res.length === 3) {
+            let dates = getWeekendData(res);
+            eventDate["startDate"] = new Date(dates.startDate);
+            eventDate["endDate"] = new Date(dates.endDate);
+            // anything else would be out of range for this skill
+        } else {
+            eventDate["error"] = dateOutOfRange;
+        }
+        // original slot value was parsed correctly
+    } else {
+        eventDate["startDate"] = new Date(date).setUTCHours(0, 0, 0, 0);
+        eventDate["endDate"] = new Date(date).setUTCHours(24, 0, 0, 0);
+    }
+    return eventDate;
 }
 
-/* LAMBDA SETUP */
-exports.handler = skillBuilder
-  .addRequestHandlers(
-    LaunchRequestHandler,
-    QuizHandler,
-    DefinitionHandler,
-    QuizAnswerHandler,
-    RepeatHandler,
-    HelpHandler,
-    ExitHandler,
-    SessionEndedRequestHandler
-  )
-  .addErrorHandlers(ErrorHandler)
-  .lambda();
+// Given a week number return the dates for both weekend days
+function getWeekendData(res) {
+    if (res.length === 3) {
+        const saturdayIndex = 5;
+        const sundayIndex = 6;
+        const weekNumber = res[1].substring(1);
+
+        const weekStart = w2date(res[0], weekNumber, saturdayIndex);
+        const weekEnd = w2date(res[0], weekNumber, sundayIndex);
+
+        return {
+            startDate: weekStart,
+            endDate: weekEnd,
+        };
+    }
+}
+
+// Given a week number return the dates for both the start date and the end date
+function getWeekData(res) {
+    if (res.length === 2) {
+
+        const mondayIndex = 0;
+        const sundayIndex = 6;
+
+        const weekNumber = res[1].substring(1);
+
+        const weekStart = w2date(res[0], weekNumber, mondayIndex);
+        const weekEnd = w2date(res[0], weekNumber, sundayIndex);
+
+        return {
+            startDate: weekStart,
+            endDate: weekEnd,
+        };
+    }
+}
+
+// Used to work out the dates given week numbers
+const w2date = function (year, wn, dayNb) {
+    const day = 86400000;
+
+    const j10 = new Date(year, 0, 10, 12, 0, 0),
+        j4 = new Date(year, 0, 4, 12, 0, 0),
+        mon1 = j4.getTime() - j10.getDay() * day;
+    return new Date(mon1 + ((wn - 1) * 7 + dayNb) * day);
+};
+
+// Loops though the events from the iCal data, and checks which ones are between our start data and out end date
+function getEventsBeweenDates(startDate, endDate, eventList) {
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    let data = new Array();
+
+    for (let i = 0; i < eventList.length; i++) {
+        if (start <= eventList[i].start && end >= eventList[i].start) {
+            data.push(eventList[i]);
+        }
+    }
+
+    console.log("FOUND " + data.length + " events between those times");
+    return data;
+}
