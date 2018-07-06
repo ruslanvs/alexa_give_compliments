@@ -1,8 +1,22 @@
 {
     "interactionModel": {
         "languageModel": {
-            "invocationName": "give compliments",
+            "invocationName": "mini me",
             "intents": [
+                {
+                    "name": "SayHiByNameIntent",
+                    "slots": [
+                        {
+                            "name": "firstName",
+                            "type": "AMAZON.US_FIRST_NAME",
+                            "samples": []
+                        }
+                    ],
+                    "samples": [
+                        "say hi to {firstName}",
+                        "say {firstName} hi"
+                    ]
+                },
                 {
                     "name": "GiveComplimentByNameIntent",
                     "slots": [
@@ -14,7 +28,8 @@
                     ],
                     "samples": [
                         "give {firstName} a compliment",
-                        "give a compliment to {firstName}"
+                        "give a compliment to {firstName}",
+                        "for a compliment for {firstName}"
                     ]
                 },
                 {

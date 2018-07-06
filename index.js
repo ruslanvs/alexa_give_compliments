@@ -5,9 +5,9 @@ const Alexa = require('alexa-sdk');
 //Make sure to enclose your value in quotes, like this: const APP_ID = 'amzn1.ask.skill.bb4045e6-b3e8-4133-b650-72923c5980f1';
 const APP_ID = undefined;
 
-const skillName = 'Give Compliments';
+const skillName = 'Mini You';
 const welcomeMessage = "Welcome to " + skillName;
-const helpMessage = ' can give compliments to your family members.';
+const helpMessage = 'I can give compliments to your family members.';
 const helpReprompt = 'What can I help you with?';
 const stopMessage = 'Goodbye!';
 
@@ -17,16 +17,32 @@ const data = [
     {firstName:"Sofiya"}
 ];
 
+const compliments = [
+    'is so beautiful',
+    'is so smart',
+    'is outstanding!',
+];
+
+const hiStrings = [
+    'Hi',
+    'Hello',
+    'Howdy',
+];
+
 const handlers = {
     'LaunchRequest': function () {
-        // this.response.speak(welcomeMessage);
         this.response.speak(welcomeMessage).listen(getGenericHelpMessage(data));
         this.emit(':responseReady');
     },
     'GiveComplimentByNameIntent': function () {
         // let firstName = isSlotValid(this.event.request, "firstName");
-        // const speechOutput = firstName + " is so beautiful";
-        const speechOutput = "Elisa is so beautiful";
+        const speechOutput = "She " + getRandomString(compliments);
+        this.response.speak(speechOutput);
+        this.emit(':responseReady');
+    },
+    'SayHiByNameIntent': function () {
+        // let firstName = isSlotValid(this.event.request, "firstName");
+        const speechOutput = getRandomString(hiStrings) + " there";
         this.response.speak(speechOutput);
         this.emit(':responseReady');
     },
@@ -64,6 +80,11 @@ exports.handler = function (event, context, callback) {
 
 function getRandom(min, max) {
 	return Math.floor(Math.random() * (max - min + 1) + min);
+}
+
+function getRandomString(arrayOfStrings) {
+	let randomNumber = getRandom(0, arrayOfStrings.length - 1);
+	return arrayOfStrings[randomNumber];
 }
 
 function getRandomName(arrayOfStrings) {
